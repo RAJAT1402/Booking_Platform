@@ -1,0 +1,352 @@
+// Prisma schema for a production-grade movie ticket booking platform
+// Stack: NestJS + Prisma + PostgreSQL + Redis + Supabase Auth
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  THEATRE_OWNER
+  ADMIN
+}
+
+enum SeatCategory {
+  REGULAR
+  PREMIUM
+  RECLINER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+  REFUNDED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
+}
+
+enum PaymentStatus {
+  INITIATED
+  PROCESSING
+  SUCCESS
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum ShowStatus {
+  SCHEDULED
+  CANCELLED
+  HOUSEFULL
+  COMPLETED
+}
+
+enum ShowSeatStatus {
+  AVAILABLE
+  LOCKED
+  BOOKED
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  googleId  String   @unique
+  name      String
+  avatarUrl String?
+  phone     String?
+
+  role UserRole @default(USER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  ownedVenues Venue[] @relation("VenueOwner")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CITY
+// ─────────────────────────────────────────────────────────────
+
+model City {
+  id    String @id @default(cuid())
+  name  String
+  state String
+  slug  String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  venues Venue[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// VENUE / THEATRE
+// ─────────────────────────────────────────────────────────────
+
+model Venue {
+  id      String @id @default(cuid())
+  name    String
+  slug    String @unique
+  address String
+
+  lat Float?
+  lng Float?
+
+  cityId String
+  city   City @relation(fields: [cityId], references: [id])
+
+  ownerId String
+  owner   User @relation("VenueOwner", fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screens Screen[]
+
+  @@index([cityId])
+  @@index([ownerId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// SCREEN
+// ─────────────────────────────────────────────────────────────
+
+model Screen {
+  id         String @id @default(cuid())
+  name       String
+  totalSeats Int
+
+  venueId String
+  venue   Venue @relation(fields: [venueId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seats Seat[]
+  shows Show[]
+
+  @@index([venueId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// SEAT (PHYSICAL SEAT)
+// ─────────────────────────────────────────────────────────────
+
+model Seat {
+  id String @id @default(cuid())
+
+  row    String
+  number Int
+
+  category SeatCategory @default(REGULAR)
+
+  screenId String
+  screen   Screen @relation(fields: [screenId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  showSeats ShowSeat[]
+
+  @@unique([screenId, row, number])
+  @@index([screenId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// MOVIE
+// ─────────────────────────────────────────────────────────────
+
+model Movie {
+  id String @id @default(cuid())
+
+  title       String
+  slug        String @unique
+  description String
+
+  language String
+
+  durationMin Int
+
+  releaseDate DateTime
+
+  posterUrl String?
+
+  rating Float?
+
+  genre String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shows Show[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHOW
+// ─────────────────────────────────────────────────────────────
+
+model Show {
+  id String @id @default(cuid())
+
+  startTime DateTime
+  endTime   DateTime
+
+  status ShowStatus @default(SCHEDULED)
+
+  basePrice Decimal @db.Decimal(10, 2)
+
+  movieId String
+  movie   Movie @relation(fields: [movieId], references: [id])
+
+  screenId String
+  screen   Screen @relation(fields: [screenId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  showSeats ShowSeat[]
+
+  @@index([movieId, startTime])
+  @@index([screenId, startTime])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHOW SEAT
+// Real-time seat state for a particular show
+// ─────────────────────────────────────────────────────────────
+
+model ShowSeat {
+  id String @id @default(cuid())
+
+  showId String
+  show   Show @relation(fields: [showId], references: [id])
+
+  seatId String
+  seat   Seat @relation(fields: [seatId], references: [id])
+
+  status ShowSeatStatus @default(AVAILABLE)
+
+  lockedUntil DateTime?
+
+  // optimistic locking support
+  version Int @default(0)
+
+  // dynamic pricing support
+  price Decimal @db.Decimal(10, 2)
+
+  bookingSeat BookingSeat?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([showId, seatId])
+  @@index([showId, status])
+  @@index([lockedUntil])
+}
+
+// ─────────────────────────────────────────────────────────────
+// BOOKING
+// ─────────────────────────────────────────────────────────────
+
+model Booking {
+  id String @id @default(cuid())
+
+  status BookingStatus @default(PENDING)
+
+  totalAmount Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id])
+
+  showId String
+  show   Show @relation(fields: [showId], references: [id])
+
+  seats BookingSeat[]
+
+  payment Payment?
+
+  @@index([userId])
+  @@index([showId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// BOOKING SEAT
+// Snapshot of booked seats
+// ─────────────────────────────────────────────────────────────
+
+model BookingSeat {
+  id String @id @default(cuid())
+
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  showSeatId String @unique
+  showSeat   ShowSeat @relation(fields: [showSeatId], references: [id])
+
+  // snapshot data
+  seatRow      String
+  seatNumber   Int
+  seatCategory SeatCategory
+
+  price Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PAYMENT
+// ─────────────────────────────────────────────────────────────
+
+model Payment {
+  id String @id @default(cuid())
+
+  provider PaymentProvider
+
+  providerOrderId String @unique
+
+  idempotencyKey String? @unique
+
+  amount Decimal @db.Decimal(10, 2)
+
+  status PaymentStatus @default(INITIATED)
+
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([status])
+}
