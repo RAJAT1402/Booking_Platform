@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { CityService } from './city.service';
 import { CreateCityDto } from './dto/create-city.dto';
 import { UpdateCityDto } from './dto/update-city.dto';
@@ -22,16 +23,19 @@ export class CityController {
     return this.cityService.create(dto);
   }
 
+  @Public()
   @Get()
   findAll() {
     return this.cityService.findAll();
   }
 
+  @Public()
   @Get('slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.cityService.findBySlug(slug);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.cityService.findOne(id);

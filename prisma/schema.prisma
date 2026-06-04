@@ -82,6 +82,8 @@ model User {
   bookings Booking[]
 
   ownedVenues Venue[] @relation("VenueOwner")
+
+  refreshTokens RefreshToken[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -349,4 +351,24 @@ model Payment {
   booking   Booking @relation(fields: [bookingId], references: [id])
 
   @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// REFRESH TOKEN
+// Opaque random tokens (SHA-256 hashed) for rotation-based refresh.
+// One row per active session; multiple rows per user = multiple devices.
+// ─────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

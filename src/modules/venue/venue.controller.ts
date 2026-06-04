@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { CreateVenueDto } from './dto/create-venue.dto';
 import { FindVenuesQueryDto } from './dto/find-venues-query.dto';
 import { UpdateVenueDto } from './dto/update-venue.dto';
@@ -24,16 +25,19 @@ export class VenueController {
     return this.venueService.create(dto);
   }
 
+  @Public()
   @Get()
   findAll(@Query() query: FindVenuesQueryDto) {
     return this.venueService.findAll(query);
   }
 
+  @Public()
   @Get('slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.venueService.findBySlug(slug);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.venueService.findOne(id);
