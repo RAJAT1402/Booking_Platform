@@ -54,3 +54,5 @@ export class VenueController {
     return this.venueService.remove(id);
   }
 }
+
+
