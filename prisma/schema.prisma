@@ -1,4 +1,4 @@
-,// Prisma schema for a production-grade movie ticket booking platform
+// Prisma schema for a production-grade movie ticket booking platform
 // Stack: NestJS + Prisma + PostgreSQL + Redis + Supabase Auth
 
 generator client {
