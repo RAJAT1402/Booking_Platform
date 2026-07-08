@@ -30,28 +30,33 @@ export class BookingController {
   // Release a hold early.
   @Post('unlock')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Seats released')
   unlock(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
     return this.bookingService.releaseSeats(user.id, dto);
   }
 
   // Convert held seats into a confirmed booking.
   @Post()
+  @ResponseMessage('Booking confirmed')
   confirm(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
     return this.bookingService.confirm(user.id, dto);
   }
 
   @Get()
+  @ResponseMessage('Bookings fetched')
   findMine(@CurrentUser() user: AuthUser) {
     return this.bookingService.findMine(user.id);
   }
 
   @Get(':id')
+  @ResponseMessage('Booking fetched')
   getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.bookingService.getOne(user.id, id, user.role);
   }
 
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Booking cancelled')
   cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.bookingService.cancel(user.id, id, user.role);
   }

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
+import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { AuthService } from './auth.service';
 import { AuthUser, CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
@@ -28,6 +29,7 @@ export class AuthController {
   @Public()
   @UseGuards(GoogleAuthGuard)
   @Get('google')
+  @ResponseMessage('Redirecting to Google')
   // Redirects to Google's consent screen; Passport handles the redirect.
   googleLogin() {
     return;
@@ -51,17 +53,20 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Token refreshed')
   refresh(@Body() dto: RefreshDto) {
     return this.authService.refresh(dto.refreshToken);
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ResponseMessage('Logged out')
   async logout(@CurrentUser() user: AuthUser, @Body() dto: RefreshDto) {
     await this.authService.logout(user.id, dto.refreshToken);
   }
 
   @Get('me')
+  @ResponseMessage('Profile fetched')
   me(@CurrentUser() user: AuthUser) {
     return this.authService.getMe(user.id);
   }
