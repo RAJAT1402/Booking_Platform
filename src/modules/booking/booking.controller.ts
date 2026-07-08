@@ -11,6 +11,7 @@ import {
   AuthUser,
   CurrentUser,
 } from '../auth/decorators/current-user.decorator';
+import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { BookingService } from './booking.service';
 import { SeatSelectionDto } from './dto/seat-selection.dto';
 
@@ -21,6 +22,7 @@ export class BookingController {
   // Hold the selected seats for 2 minutes.
   @Post('lock')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Seats locked')
   lock(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
     return this.bookingService.lockSeats(user.id, dto);
   }

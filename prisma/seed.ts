@@ -32,6 +32,11 @@ const CITIES = [
   { name: 'Chennai', state: 'Tamil Nadu', slug: 'chennai' },
   { name: 'Pune', state: 'Maharashtra', slug: 'pune' },
   { name: 'Kolkata', state: 'West Bengal', slug: 'kolkata' },
+  { name: 'Ahmedabad', state: 'Gujarat', slug: 'ahmedabad' },
+  { name: 'Jaipur', state: 'Rajasthan', slug: 'jaipur' },
+  { name: 'Lucknow', state: 'Uttar Pradesh', slug: 'lucknow' },
+  { name: 'Chandigarh', state: 'Chandigarh', slug: 'chandigarh' },
+  { name: 'Kochi', state: 'Kerala', slug: 'kochi' },
 ];
 
 const USERS = [
@@ -195,7 +200,7 @@ const MOVIES = [
   },
 ];
 
-// Venues: keyed by city slug + owner email. 5 venues across 5 cities.
+// Venues: one or more per city so every city has something to browse.
 const VENUES = [
   {
     name: 'PVR Select Citywalk',
@@ -241,6 +246,69 @@ const VENUES = [
     ownerEmail: 'owner.inox@knot.dating',
     lat: 18.5618,
     lng: 73.9165,
+  },
+  {
+    name: 'Cinepolis Express Avenue',
+    slug: 'cinepolis-express-avenue-chennai',
+    address: 'Express Avenue Mall, Royapettah, Chennai',
+    citySlug: 'chennai',
+    ownerEmail: 'owner.cinepolis@knot.dating',
+    lat: 13.0588,
+    lng: 80.2645,
+  },
+  {
+    name: 'INOX South City',
+    slug: 'inox-south-city-kolkata',
+    address: 'South City Mall, Prince Anwar Shah Road, Kolkata',
+    citySlug: 'kolkata',
+    ownerEmail: 'owner.inox@knot.dating',
+    lat: 22.5006,
+    lng: 88.3618,
+  },
+  {
+    name: 'PVR Acropolis',
+    slug: 'pvr-acropolis-ahmedabad',
+    address: 'Acropolis Mall, Thaltej, Ahmedabad',
+    citySlug: 'ahmedabad',
+    ownerEmail: 'owner.pvr@knot.dating',
+    lat: 23.0465,
+    lng: 72.5102,
+  },
+  {
+    name: 'Cinepolis WTP',
+    slug: 'cinepolis-wtp-jaipur',
+    address: 'World Trade Park, Malviya Nagar, Jaipur',
+    citySlug: 'jaipur',
+    ownerEmail: 'owner.cinepolis@knot.dating',
+    lat: 26.8505,
+    lng: 75.8059,
+  },
+  {
+    name: 'INOX Riverside',
+    slug: 'inox-riverside-lucknow',
+    address: 'Riverside Mall, Gomti Nagar, Lucknow',
+    citySlug: 'lucknow',
+    ownerEmail: 'owner.inox@knot.dating',
+    lat: 26.8512,
+    lng: 81.0029,
+  },
+  {
+    name: 'PVR Elante',
+    slug: 'pvr-elante-chandigarh',
+    address: 'Elante Mall, Industrial Area Phase 1, Chandigarh',
+    citySlug: 'chandigarh',
+    ownerEmail: 'owner.pvr@knot.dating',
+    lat: 30.7058,
+    lng: 76.8013,
+  },
+  {
+    name: 'Cinepolis Lulu Mall',
+    slug: 'cinepolis-lulu-kochi',
+    address: 'Lulu Mall, Edappally, Kochi',
+    citySlug: 'kochi',
+    ownerEmail: 'owner.cinepolis@knot.dating',
+    lat: 10.0274,
+    lng: 76.3080,
   },
 ];
 

@@ -259,8 +259,11 @@ refresh tokens) and recreates it; cities are upserted (kept).
 > ℹ️ IDs are `cuid`s generated at seed time — fetch real IDs via the list
 > endpoints. **Slugs are stable** and safe to hard-code in test UIs.
 
-### Cities (7)
-`delhi`, `mumbai`, `bangalore`, `hyderabad`, `chennai`, `pune`, `kolkata`
+### Cities (12)
+`delhi`, `mumbai`, `bangalore`, `hyderabad`, `chennai`, `pune`, `kolkata`,
+`ahmedabad`, `jaipur`, `lucknow`, `chandigarh`, `kochi`
+
+Every city has at least one venue.
 
 ### Users (7)
 | Name | Email | Role |
@@ -285,18 +288,25 @@ refresh tokens) and recreates it; cities are upserted (kept).
 | Silent Frequency   | `silent-frequency`   | Tamil     | 133m | 8.2 | Thriller, Mystery |
 | Starlight Express  | `starlight-express`  | English   |  98m | 7.1 | Animation, Musical, Family |
 
-### Venues (5) — 2 screens each
+### Venues (12) — one per city, 2 screens each
 | Venue | Slug | City | Owner |
 |-------|------|------|-------|
-| PVR Select Citywalk     | `pvr-select-citywalk-delhi` | Delhi     | Ravi Menon |
-| INOX R-City             | `inox-rcity-mumbai`         | Mumbai    | Priya Sharma |
-| Cinepolis Forum Mall    | `cinepolis-forum-bangalore` | Bangalore | Arjun Reddy |
-| PVR Inorbit             | `pvr-inorbit-hyderabad`     | Hyderabad | Ravi Menon |
-| INOX Phoenix Marketcity | `inox-phoenix-pune`         | Pune      | Priya Sharma |
+| PVR Select Citywalk     | `pvr-select-citywalk-delhi`        | Delhi      | Ravi Menon |
+| INOX R-City             | `inox-rcity-mumbai`                | Mumbai     | Priya Sharma |
+| Cinepolis Forum Mall    | `cinepolis-forum-bangalore`        | Bangalore  | Arjun Reddy |
+| PVR Inorbit             | `pvr-inorbit-hyderabad`            | Hyderabad  | Ravi Menon |
+| INOX Phoenix Marketcity | `inox-phoenix-pune`                | Pune       | Priya Sharma |
+| Cinepolis Express Avenue| `cinepolis-express-avenue-chennai` | Chennai    | Arjun Reddy |
+| INOX South City         | `inox-south-city-kolkata`          | Kolkata    | Priya Sharma |
+| PVR Acropolis           | `pvr-acropolis-ahmedabad`          | Ahmedabad  | Ravi Menon |
+| Cinepolis WTP           | `cinepolis-wtp-jaipur`             | Jaipur     | Arjun Reddy |
+| INOX Riverside          | `inox-riverside-lucknow`           | Lucknow    | Priya Sharma |
+| PVR Elante              | `pvr-elante-chandigarh`            | Chandigarh | Ravi Menon |
+| Cinepolis Lulu Mall     | `cinepolis-lulu-kochi`             | Kochi      | Arjun Reddy |
 
 ### Screens & seats
-- **10 screens** total (2 per venue), each named `Screen 1` / `Screen 2`.
-- **96 seats per screen** (rows A–H × 12), **960 seats** total.
+- **24 screens** total (2 per venue), each named `Screen 1` / `Screen 2`.
+- **96 seats per screen** (rows A–H × 12), **2,304 seats** total.
 - Seat categories per row:
   - **A–D** → `REGULAR`
   - **E–F** → `PREMIUM` (×1.5 price)
@@ -305,8 +315,8 @@ refresh tokens) and recreates it; cities are upserted (kept).
 ### Shows & show-seats
 - Generated for **today + the next 3 days** (always upcoming relative to seed run).
 - **4 showtimes/day** per screen: **10:00, 13:00, 17:00, 21:00**.
-- ⇒ **160 shows** (10 screens × 4 days × 4 slots), each `SCHEDULED`.
-- Each show materializes 96 `ShowSeat`s ⇒ **~15,360 show-seats**.
+- ⇒ **384 shows** (24 screens × 4 days × 4 slots), each `SCHEDULED`.
+- Each show materializes 96 `ShowSeat`s ⇒ **36,864 show-seats**.
 - `basePrice` rotates through **₹180 / ₹220 / ₹250 / ₹300**.
   - Example pricing at base ₹200: REGULAR ₹200, PREMIUM ₹300, RECLINER ₹400.
 - Movies rotate across screens/days so every screen has a varied lineup.
