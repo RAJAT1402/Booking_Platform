@@ -35,6 +35,13 @@ export class MovieController {
   }
 
   @Public()
+  @Get('recommended')
+  @ResponseMessage('Recommended movies fetched')
+  findRecommended() {
+    return this.movieService.findRecommended();
+  }
+
+  @Public()
   @Get('slug/:slug')
   @ResponseMessage('Movie fetched')
   findBySlug(@Param('slug') slug: string) {

@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsNumber,
@@ -56,4 +57,8 @@ export class CreateMovieDto {
   @IsArray()
   @IsString({ each: true })
   genre: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isRecommended?: boolean;
 }

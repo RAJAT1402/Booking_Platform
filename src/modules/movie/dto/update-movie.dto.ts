@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsNumber,
@@ -62,4 +63,8 @@ export class UpdateMovieDto {
   @IsArray()
   @IsString({ each: true })
   genre?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isRecommended?: boolean;
 }

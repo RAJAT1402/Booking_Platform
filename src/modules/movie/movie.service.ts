@@ -45,6 +45,7 @@ export class MovieService {
           posterUrl: dto.posterUrl,
           rating: dto.rating,
           genre: dto.genre,
+          isRecommended: dto.isRecommended,
         },
       });
     } catch (e) {
@@ -64,6 +65,13 @@ export class MovieService {
 
     return this.prisma.movie.findMany({
       where,
+      orderBy: { releaseDate: 'desc' },
+    });
+  }
+
+  findRecommended() {
+    return this.prisma.movie.findMany({
+      where: { isRecommended: true },
       orderBy: { releaseDate: 'desc' },
     });
   }
