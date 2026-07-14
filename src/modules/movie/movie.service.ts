@@ -76,6 +76,16 @@ export class MovieService {
     });
   }
 
+  // Top 3 recommended movies for the homepage carousel:
+  // highest rated first, newest release as the tiebreaker.
+  async findCarousel() {
+    return this.prisma.movie.findMany({
+      where: { isRecommended: true },
+      orderBy: [{ rating: 'desc' }, { releaseDate: 'desc' }],
+      take: 3,
+    });
+  }
+
   async findOne(id: string) {
     const movie = await this.prisma.movie.findUnique({ where: { id } });
     if (!movie) throw new NotFoundException(`Movie ${id} not found`);

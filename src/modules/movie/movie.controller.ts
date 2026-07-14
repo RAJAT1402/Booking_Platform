@@ -42,6 +42,13 @@ export class MovieController {
   }
 
   @Public()
+  @Get('carousel')
+  @ResponseMessage('Carousel movies fetched')
+  findCarousel() {
+    return this.movieService.findCarousel();
+  }
+
+  @Public()
   @Get('slug/:slug')
   @ResponseMessage('Movie fetched')
   findBySlug(@Param('slug') slug: string) {
