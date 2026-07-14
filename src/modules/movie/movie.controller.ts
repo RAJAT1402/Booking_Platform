@@ -14,6 +14,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { CreateMovieDto } from './dto/create-movie.dto';
 import { FindMoviesQueryDto } from './dto/find-movies-query.dto';
+import { FindShowtimesQueryDto } from './dto/find-showtimes-query.dto';
 import { UpdateMovieDto } from './dto/update-movie.dto';
 import { MovieService } from './movie.service';
 
@@ -60,6 +61,16 @@ export class MovieController {
   @ResponseMessage('Movie fetched')
   findOne(@Param('id') id: string) {
     return this.movieService.findOne(id);
+  }
+
+  @Public()
+  @Get(':id/showtimes')
+  @ResponseMessage('Showtimes fetched')
+  findShowtimes(
+    @Param('id') id: string,
+    @Query() query: FindShowtimesQueryDto,
+  ) {
+    return this.movieService.findShowtimes(id, query);
   }
 
   @Patch(':id')
