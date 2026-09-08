@@ -11,6 +11,7 @@ import { MovieModule } from './modules/movie/movie.module';
 import { ScreenModule } from './modules/screen/screen.module';
 import { SeatModule } from './modules/seat/seat.module';
 import { ShowModule } from './modules/show/show.module';
+import { TicketModule } from './modules/ticket/ticket.module';
 import { VenueModule } from './modules/venue/venue.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -28,6 +29,7 @@ import { RedisModule } from './redis/redis.module';
     SeatModule,
     ShowModule,
     BookingModule,
+    TicketModule,
   ],
   controllers: [AppController],
   providers: [

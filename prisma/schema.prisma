@@ -63,14 +63,21 @@ enum ShowSeatStatus {
   BOOKED
 }
 
+enum TicketStatus {
+  ACTIVE
+  USED
+  CANCELLED
+  EXPIRED
+}
+
 // ─────────────────────────────────────────────────────────────
 // USER
 // ─────────────────────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  googleId  String   @unique
+  id        String  @id @default(cuid())
+  email     String  @unique
+  googleId  String  @unique
   name      String
   avatarUrl String?
   phone     String?
@@ -117,10 +124,10 @@ model Venue {
   lng Float?
 
   cityId String
-  city   City @relation(fields: [cityId], references: [id])
+  city   City   @relation(fields: [cityId], references: [id])
 
   ownerId String
-  owner   User @relation("VenueOwner", fields: [ownerId], references: [id])
+  owner   User   @relation("VenueOwner", fields: [ownerId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -141,7 +148,7 @@ model Screen {
   totalSeats Int
 
   venueId String
-  venue   Venue @relation(fields: [venueId], references: [id])
+  venue   Venue  @relation(fields: [venueId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -224,7 +231,7 @@ model Show {
   basePrice Decimal @db.Decimal(10, 2)
 
   movieId String
-  movie   Movie @relation(fields: [movieId], references: [id])
+  movie   Movie  @relation(fields: [movieId], references: [id])
 
   screenId String
   screen   Screen @relation(fields: [screenId], references: [id])
@@ -250,10 +257,10 @@ model ShowSeat {
   id String @id @default(cuid())
 
   showId String
-  show   Show @relation(fields: [showId], references: [id])
+  show   Show   @relation(fields: [showId], references: [id])
 
   seatId String
-  seat   Seat @relation(fields: [seatId], references: [id])
+  seat   Seat   @relation(fields: [seatId], references: [id])
 
   status ShowSeatStatus @default(AVAILABLE)
 
@@ -290,14 +297,16 @@ model Booking {
   updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
 
   showId String
-  show   Show @relation(fields: [showId], references: [id])
+  show   Show   @relation(fields: [showId], references: [id])
 
   seats BookingSeat[]
 
   payment Payment?
+
+  ticket Ticket?
 
   @@index([userId])
   @@index([showId])
@@ -315,7 +324,7 @@ model BookingSeat {
   bookingId String
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  showSeatId String @unique
+  showSeatId String   @unique
   showSeat   ShowSeat @relation(fields: [showSeatId], references: [id])
 
   // snapshot data
@@ -365,15 +374,42 @@ model Payment {
 // ─────────────────────────────────────────────────────────────
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// TICKET
+// One per CONFIRMED booking. `ticketCode` is a 64-char hex token from
+// crypto.randomBytes(32) — the credential scanned at the gate. It carries no
+// user/booking/seat data; the QR code is rendered from it on the fly and is
+// never stored here.
+// ─────────────────────────────────────────────────────────────
+
+model Ticket {
+  id String @id @default(cuid())
+
+  ticketCode String @unique
+
+  status TicketStatus @default(ACTIVE)
+
+  issuedAt DateTime  @default(now())
+  usedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([status])
 }

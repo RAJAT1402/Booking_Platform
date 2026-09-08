@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -10,9 +11,11 @@ import {
   Prisma,
   ShowSeatStatus,
   ShowStatus,
+  TicketStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { TicketService } from '../ticket/ticket.service';
 import { SeatSelectionDto } from './dto/seat-selection.dto';
 
 // Seats are held for 2 minutes while the user completes selection/payment.
@@ -20,9 +23,12 @@ const SEAT_LOCK_TTL_MS = 2 * 60 * 1000;
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly ticketService: TicketService,
   ) {}
 
   /**
@@ -156,6 +162,20 @@ export class BookingService {
     // Locks no longer needed — the seats are permanently BOOKED now.
     await this.redis.releaseSeatLocks(showId, showSeatIds, userId);
 
+    // Ticket is issued only after the booking transaction has committed, so a
+    // rolled-back booking can never leave a ticket behind. The booking itself
+    // is already CONFIRMED at this point — if issuing fails we still return it,
+    // and the client can retry via POST /tickets/booking/:bookingId (issuing is
+    // idempotent, so a retry can never produce a second ticket).
+    try {
+      await this.ticketService.createTicket(booking.id);
+    } catch (err) {
+      this.logger.error(
+        `Failed to issue ticket for booking ${booking.id}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
     return this.getOne(userId, booking.id);
   }
 
@@ -164,6 +184,7 @@ export class BookingService {
       where: { userId },
       include: {
         seats: true,
+        ticket: true,
         show: { include: { movie: true, screen: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -175,6 +196,7 @@ export class BookingService {
       where: { id },
       include: {
         seats: true,
+        ticket: true,
         show: { include: { movie: true, screen: true } },
       },
     });
@@ -199,10 +221,15 @@ export class BookingService {
         where: { id: { in: showSeatIds } },
         data: { status: ShowSeatStatus.AVAILABLE, lockedUntil: null },
       });
+      // A cancelled booking must not leave a scannable ticket at the gate.
+      await tx.ticket.updateMany({
+        where: { bookingId: id, status: TicketStatus.ACTIVE },
+        data: { status: TicketStatus.CANCELLED },
+      });
       return tx.booking.update({
         where: { id },
         data: { status: BookingStatus.CANCELLED },
-        include: { seats: true },
+        include: { seats: true, ticket: true },
       });
     });
   }
