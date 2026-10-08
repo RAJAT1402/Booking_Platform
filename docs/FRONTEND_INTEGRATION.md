@@ -5,10 +5,27 @@ every endpoint with request/response shapes, all enums, and a full inventory of
 the seeded dummy data (with example IDs/slugs you can hit directly).
 
 - **Base URL (local):** `http://localhost:3000`
+- **Base URL (deployed):** `https://34-131-36-123.nip.io`
 - **No global route prefix** — routes are mounted at the root (e.g. `GET /movies`).
 - **Content type:** `application/json`
 - **Validation:** strict. Unknown body fields are rejected (`400`), types are
   coerced where sensible. Send exactly the documented fields.
+
+### Response envelope (every endpoint)
+
+Every response — success **and** error — is wrapped in the same structure:
+
+```json
+{ "code": 200, "data": <payload | null>, "message": "human-readable status" }
+```
+
+- `code` — the HTTP status (`200`, `201`, `404`, …).
+- `data` — the actual payload (object, array, or `null`). **Read your result from `data`.**
+- `message` — a short per-endpoint message (e.g. `"Showtimes fetched"`).
+
+On errors, `data` is `null` and `message` holds the reason. The only routes **not**
+wrapped are the OAuth browser redirects (`GET /auth/google`, `GET /auth/google/callback`),
+which redirect instead of returning JSON.
 
 ---
 
@@ -64,6 +81,89 @@ Auth is **Google OAuth → JWT access token + opaque refresh token**.
 > Google account (you'll be created as a `USER`), or have backend mint a token
 > for a seeded user. The seeded customers exist so that "my bookings" and booked
 > seats show realistic data.
+
+---
+
+## 1b. End-to-end flow — the discovery chain
+
+The frontend **never hardcodes or guesses an ID** (`movieId`, `showId`, `showSeatId`).
+It **discovers** them by walking the browse chain: each screen's API response hands
+the frontend the IDs it needs for the next call. You just carry an ID forward from
+one response into the URL/body of the next request.
+
+```
+GET /movies                       → movieId
+GET /movies/:movieId/showtimes    → showId      (attached to each time slot)
+GET /shows/:showId/seats          → showSeatId[]
+POST /bookings/lock  { showId, showSeatIds }     (login required)
+POST /bookings       { showId, showSeatIds }     (login required)
+```
+
+### 1. Home / movie list → get a `movieId`
+```bash
+curl https://34-131-36-123.nip.io/movies
+# data: [ { "id": "mov_123", "title": "...", ... } ]
+```
+(Carousel banner: `GET /movies/carousel` for the top 3 recommended.)
+User taps a movie → the frontend now holds **`movieId = "mov_123"`**.
+
+### 2. Showtimes screen → get the `showId`
+```bash
+curl "https://34-131-36-123.nip.io/movies/mov_123/showtimes?cityId=cty_9&date=2026-07-20"
+```
+This returns `venues`, and inside each venue a list of `shows` — **each show carries
+its own `showId`**:
+```json
+{
+  "data": {
+    "movie": { "id": "mov_123", "title": "..." },
+    "venues": [
+      {
+        "venue": { "id": "ven_5", "name": "INOX R-City" },
+        "shows": [
+          { "showId": "shw_777", "startTime": "2026-07-20T13:30:00Z", "screenName": "Screen 1", "availableSeats": 92 },
+          { "showId": "shw_778", "startTime": "2026-07-20T18:00:00Z", "screenName": "Screen 1", "availableSeats": 40 }
+        ]
+      }
+    ]
+  }
+}
+```
+The user sees a grid of **time buttons** (13:30, 18:00…) under each cinema. Each
+button is backed by a `showId`. When the user taps **"18:00 at INOX R-City"**, the
+frontend already holds **`showId = "shw_778"`** — it doesn't compute it, it just
+reads it from the button it rendered.
+
+**Factors that change what comes back:** `cityId` (only that city's cinemas),
+`date` (only that day; omit for all upcoming), and the server always drops **past**
+and **non-`SCHEDULED`** shows. `availableSeats` lets you grey out near-full slots.
+
+### 3. Seat map → use that `showId`
+```bash
+curl https://34-131-36-123.nip.io/shows/shw_778/seats
+```
+Returns every seat with its `status` (`AVAILABLE`/`LOCKED`/`BOOKED`), `category`,
+`price`, and **`showSeatId`**. User picks 1–10 `AVAILABLE` seats → the frontend
+collects those **`showSeatId`s** for the next step.
+
+### 4. Lock, then confirm (login required) → get a booking
+```bash
+# Hold the chosen seats for ~2 minutes (all-or-nothing)
+curl -X POST https://34-131-36-123.nip.io/bookings/lock \
+  -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{ "showId": "shw_778", "showSeatIds": ["ss_1", "ss_2"] }'
+
+# Collect payment, then confirm within the 2-minute window
+curl -X POST https://34-131-36-123.nip.io/bookings \
+  -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{ "showId": "shw_778", "showSeatIds": ["ss_1", "ss_2"] }'
+```
+`409` on lock means someone grabbed a seat first → re-fetch the seat map (step 3).
+Confirm must land inside the 2-minute hold, or the seats free up and the user restarts.
+
+> **Auth timing:** steps 1–3 are fully public (browsing). The **login gate is at
+> step 4** — only when the user commits to locking seats do you need the Google
+> OAuth token (send them through `GET /auth/google`; see §1).
 
 ---
 
@@ -153,14 +253,48 @@ Auth is **Google OAuth → JWT access token + opaque refresh token**.
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET    | `/movies`            | public | Filters: `?q=` (title), `?language=`, `?genre=` |
-| GET    | `/movies/slug/:slug` | public | e.g. `/movies/slug/neon-bazaar` |
-| GET    | `/movies/:id`        | public | |
-| POST   | `/movies`            | bearer | see below |
-| PATCH  | `/movies/:id`        | bearer | partial |
-| DELETE | `/movies/:id`        | bearer | 204 |
+| GET    | `/movies`               | public | Filters: `?q=` (title), `?language=`, `?genre=` |
+| GET    | `/movies/carousel`      | public | **Top 3 recommended** movies for the home carousel (rating desc, then newest) |
+| GET    | `/movies/recommended`   | public | All movies flagged `isRecommended` (newest first) |
+| GET    | `/movies/:id/showtimes` | public | Movie's upcoming shows **grouped by cinema**; filters: `?cityId=`, `?date=YYYY-MM-DD` |
+| GET    | `/movies/slug/:slug`    | public | e.g. `/movies/slug/neon-bazaar` |
+| GET    | `/movies/:id`           | public | |
+| POST   | `/movies`               | bearer | see below |
+| PATCH  | `/movies/:id`           | bearer | partial |
+| DELETE | `/movies/:id`           | bearer | 204 |
 
-**Create body:** `{ title, description, language, durationMin, releaseDate (ISO date), genre: string[], slug?, posterUrl?, rating? (0–10) }`
+**Create body:** `{ title, description, language, durationMin, releaseDate (ISO date), genre: string[], slug?, posterUrl?, rating? (0–10), isRecommended? (bool) }`
+
+**Carousel / recommended response** (`data` is a `Movie[]`):
+```json
+{ "code": 200, "message": "Carousel movies fetched", "data": [ /* up to 3 Movie objects */ ] }
+```
+
+**Showtimes response** (`GET /movies/:id/showtimes`) — drives the "pick a cinema & time" screen:
+```json
+{
+  "code": 200,
+  "message": "Showtimes fetched",
+  "data": {
+    "movie": { "id": "clx...", "title": "Neon Bazaar", "posterUrl": "...", "durationMin": 137 },
+    "venues": [
+      {
+        "venue": { "id": "clx...", "name": "INOX R-City", "address": "...",
+                   "city": { "id": "clx...", "name": "Mumbai", "slug": "mumbai" } },
+        "shows": [
+          { "showId": "clx...", "startTime": "2026-07-20T13:30:00.000Z",
+            "endTime": "2026-07-20T15:58:00.000Z", "basePrice": "250",
+            "screenId": "clx...", "screenName": "Screen 1", "availableSeats": 92 }
+        ]
+      }
+    ]
+  }
+}
+```
+- Only **upcoming** (`startTime ≥ now`), **SCHEDULED** shows are returned.
+- `shows` are ordered by `startTime`; `venues` is `[]` if nothing matches.
+- `date` is interpreted in **UTC** (`YYYY-MM-DDT00:00:00Z` .. +24h).
+- `availableSeats` counts `AVAILABLE` show-seats (exact live map is `GET /shows/:id/seats`).
 
 **Movie shape:**
 ```json
@@ -340,10 +474,11 @@ curl http://localhost:3000/cities
 curl "http://localhost:3000/movies?language=Hindi"
 curl http://localhost:3000/movies/slug/neon-bazaar
 
-# 3. Find shows for a movie (grab a movieId from step 2)
-curl "http://localhost:3000/shows?movieId=<MOVIE_ID>"
+# 3. Showtimes for a movie, grouped by cinema (grab a movieId from step 2)
+#    → each venue's shows[] carry the showId you need next
+curl "http://localhost:3000/movies/<MOVIE_ID>/showtimes?cityId=<CITY_ID>"
 
-# 4. Get the seat map for a show
+# 4. Get the seat map for a show (grab a showId from step 3)
 curl http://localhost:3000/shows/<SHOW_ID>/seats
 
 # 5. (authed) Lock seats, then confirm
@@ -356,9 +491,9 @@ curl -X POST http://localhost:3000/bookings/lock \
 ---
 
 ### Error format
-Standard NestJS errors:
+Errors use the same envelope as success responses (`data` is `null`):
 ```json
-{ "statusCode": 400, "message": ["field must be a string"], "error": "Bad Request" }
+{ "code": 400, "data": null, "message": "field must be a string" }
 ```
 Common codes: `400` validation, `401` missing/invalid token, `403` forbidden,
 `404` not found, `409` conflict (e.g. seat already locked/booked).
