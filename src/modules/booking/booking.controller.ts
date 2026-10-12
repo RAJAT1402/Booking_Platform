@@ -39,6 +39,7 @@ export class BookingController {
   @Post()
   @ResponseMessage('Booking confirmed')
   confirm(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
+    console.log("Added logs");
     return this.bookingService.confirm(user.id, dto);
   }
 
