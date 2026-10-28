@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -14,15 +15,22 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { SeatSelectionDto } from './dto/seat-selection.dto';
+import { BookingEmailService } from './booking-email.service';
+import { BookingTicketService } from './booking-ticket.service';
+import { AuthUser } from '../auth/decorators/current-user.decorator';
 
 // Seats are held for 2 minutes while the user completes selection/payment.
 const SEAT_LOCK_TTL_MS = 2 * 60 * 1000;
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly emails: BookingEmailService,
+    private readonly tickets: BookingTicketService,
   ) {}
 
   /**
@@ -60,7 +68,10 @@ export class BookingService {
 
     const expiresAt = new Date(Date.now() + SEAT_LOCK_TTL_MS);
     await this.prisma.showSeat.updateMany({
-      where: { id: { in: showSeatIds }, status: { not: ShowSeatStatus.BOOKED } },
+      where: {
+        id: { in: showSeatIds },
+        status: { not: ShowSeatStatus.BOOKED },
+      },
       data: { status: ShowSeatStatus.LOCKED, lockedUntil: expiresAt },
     });
 
@@ -138,7 +149,10 @@ export class BookingService {
 
       // Flip to BOOKED, guarding against a concurrent booking of the same seat.
       const booked = await tx.showSeat.updateMany({
-        where: { id: { in: showSeatIds }, status: { not: ShowSeatStatus.BOOKED } },
+        where: {
+          id: { in: showSeatIds },
+          status: { not: ShowSeatStatus.BOOKED },
+        },
         data: {
           status: ShowSeatStatus.BOOKED,
           lockedUntil: null,
@@ -154,9 +168,79 @@ export class BookingService {
     });
 
     // Locks no longer needed — the seats are permanently BOOKED now.
-    await this.redis.releaseSeatLocks(showId, showSeatIds, userId);
+    try {
+      await this.redis.releaseSeatLocks(showId, showSeatIds, userId);
+    } catch {
+      this.logger.warn(
+        `Could not release locks for confirmed booking ${booking.id}; locks will expire`,
+      );
+    }
 
-    return this.getOne(userId, booking.id);
+    const confirmationEmail = await this.emails.sendConfirmation(booking.id);
+    return { ...(await this.getOne(userId, booking.id)), confirmationEmail };
+  }
+
+  async resendConfirmation(userId: string, id: string, role: string) {
+    const booking = await this.getOne(userId, id, role);
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException(
+        'Only confirmed bookings can receive confirmation emails',
+      );
+    }
+    return {
+      bookingId: id,
+      confirmationEmail: await this.emails.sendConfirmation(id),
+    };
+  }
+
+  async verifyTicket(user: AuthUser, token: string) {
+    if (user.role !== 'ADMIN' && user.role !== 'THEATRE_OWNER') {
+      throw new ForbiddenException(
+        'Only venue owners and admins can verify tickets',
+      );
+    }
+    const id = this.tickets.verify(token);
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: {
+        seats: true,
+        show: {
+          include: { movie: true, screen: { include: { venue: true } } },
+        },
+      },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (
+      user.role !== 'ADMIN' &&
+      booking.show.screen.venue.ownerId !== user.id
+    ) {
+      throw new ForbiddenException(
+        'You can only verify tickets for your own venues',
+      );
+    }
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException('Booking is no longer confirmed');
+    }
+    if (
+      booking.show.status === ShowStatus.CANCELLED ||
+      booking.show.status === ShowStatus.COMPLETED ||
+      booking.show.endTime <= new Date()
+    ) {
+      throw new BadRequestException('Show is cancelled or has ended');
+    }
+    return {
+      valid: true,
+      bookingId: booking.id,
+      status: booking.status,
+      movie: booking.show.movie.title,
+      venue: booking.show.screen.venue.name,
+      screen: booking.show.screen.name,
+      startTime: booking.show.startTime,
+      seats: booking.seats.map((seat) => ({
+        row: seat.seatRow,
+        number: seat.seatNumber,
+      })),
+    };
   }
 
   findMine(userId: string) {
