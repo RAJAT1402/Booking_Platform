@@ -63,6 +63,7 @@ Set production values (the `.env` is git-ignored, so it stays only on the VM):
 
 ```env
 DATABASE_URL="postgresql://booking:CHANGE_ME_STRONG_PASSWORD@localhost:5432/booking_platform?schema=public"
+DIRECT_URL="postgresql://booking:CHANGE_ME_STRONG_PASSWORD@localhost:5432/booking_platform?schema=public"
 
 GOOGLE_CLIENT_ID=<your-id>
 GOOGLE_CLIENT_SECRET=<your-secret>
@@ -175,9 +176,54 @@ cd ~/Booking_Platform
 git pull
 npm ci
 npx prisma migrate deploy
+npx prisma generate
 npm run build
 pm2 reload booking-api
 ```
+
+## Google login fails because `public.RefreshToken` does not exist
+
+The Google callback stores a refresh token before completing login. Deploy the
+`20261028000000_add_refresh_token` migration to create that table, its indexes,
+and its foreign key to `User`.
+
+On the VM, confirm that the app's `DATABASE_URL` and Prisma's `DIRECT_URL`
+target the same database and schema. `DIRECT_URL` is used for migrations; it
+can use a direct connection while `DATABASE_URL` uses a pooler. Also check for
+environment overrides in PM2 when comparing the app's configuration to `.env`.
+
+After transferring the updated code (including `prisma/migrations`) to the VM:
+
+```bash
+cd /home/azureuser/booking-platform
+npx prisma migrate deploy
+npx prisma migrate status
+npx prisma generate
+npm run build
+pm2 reload booking-api --update-env
+```
+
+Stop if any command fails and resolve that failure before continuing. Verify
+the table through the runtime database connection without printing credentials:
+
+```bash
+node <<'NODE'
+require('dotenv').config();
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+prisma.refreshToken.count()
+  .then(() => console.log('RefreshToken table is accessible'))
+  .catch(() => {
+    console.error('RefreshToken verification failed; check the runtime database and migrations');
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());
+NODE
+```
+
+Run this check with the same database environment as the PM2 process. Then start
+a fresh login from the frontend `/sign-in` page; do not reuse the old Google
+callback URL.
 
 ## Optional: HTTPS with a domain
 
