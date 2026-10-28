@@ -14,6 +14,7 @@ import {
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { BookingService } from './booking.service';
 import { SeatSelectionDto } from './dto/seat-selection.dto';
+import { VerifyBookingDto } from './dto/verify-booking.dto';
 
 @Controller('bookings')
 export class BookingController {
@@ -39,8 +40,21 @@ export class BookingController {
   @Post()
   @ResponseMessage('Booking confirmed')
   confirm(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
-    console.log("Added logs");
     return this.bookingService.confirm(user.id, dto);
+  }
+
+  @Post('verify')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Booking verified')
+  verify(@CurrentUser() user: AuthUser, @Body() dto: VerifyBookingDto) {
+    return this.bookingService.verifyTicket(user, dto.token);
+  }
+
+  @Post(':id/confirmation-email')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Confirmation email processed')
+  resendConfirmation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.bookingService.resendConfirmation(user.id, id, user.role);
   }
 
   @Get()
