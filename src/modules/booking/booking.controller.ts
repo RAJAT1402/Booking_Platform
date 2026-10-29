@@ -15,6 +15,7 @@ import { ResponseMessage } from '../../common/decorators/response-message.decora
 import { BookingService } from './booking.service';
 import { SeatSelectionDto } from './dto/seat-selection.dto';
 import { VerifyBookingDto } from './dto/verify-booking.dto';
+import { VerifyPaymentDto } from './dto/verify-payment.dto';
 
 @Controller('bookings')
 export class BookingController {
@@ -36,11 +37,28 @@ export class BookingController {
     return this.bookingService.releaseSeats(user.id, dto);
   }
 
-  // Convert held seats into a confirmed booking.
+  // Create a pending booking and Razorpay order from held seats.
   @Post()
-  @ResponseMessage('Booking confirmed')
-  confirm(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
-    return this.bookingService.confirm(user.id, dto);
+  @ResponseMessage('Checkout created')
+  createCheckout(@CurrentUser() user: AuthUser, @Body() dto: SeatSelectionDto) {
+    return this.bookingService.createCheckout(user.id, dto);
+  }
+
+  @Post(':id/verify-payment')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Payment verified')
+  verifyPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: VerifyPaymentDto,
+  ) {
+    return this.bookingService.verifyPayment(
+      user.id,
+      id,
+      dto.razorpay_order_id,
+      dto.razorpay_payment_id,
+      dto.razorpay_signature,
+    );
   }
 
   @Post('verify')

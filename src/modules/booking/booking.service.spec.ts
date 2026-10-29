@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { BookingStatus, Prisma, ShowStatus } from '@prisma/client';
+import {
+  BookingStatus,
+  PaymentProvider,
+  PaymentStatus,
+  Prisma,
+  ShowSeatStatus,
+  ShowStatus,
+} from '@prisma/client';
 import { BookingService } from './booking.service';
 
 describe('Booking confirmation and verification', () => {
@@ -8,6 +15,7 @@ describe('Booking confirmation and verification', () => {
   let redis: any;
   let emails: any;
   let tickets: any;
+  let razorpay: any;
   let booking: any;
   const owner = {
     id: 'owner',
@@ -20,16 +28,26 @@ describe('Booking confirmation and verification', () => {
       id: 'booking',
       userId: 'customer',
       status: BookingStatus.CONFIRMED,
+      totalAmount: new Prisma.Decimal(100),
+      showId: 'show',
       seats: [{ seatRow: 'A', seatNumber: 1 }],
       show: {
         status: ShowStatus.SCHEDULED,
+        startTime: new Date(Date.now() + 3600000),
         endTime: new Date(Date.now() + 3600000),
         movie: { title: 'Movie' },
         screen: { name: 'Screen', venue: { name: 'Venue', ownerId: 'owner' } },
       },
     };
     prisma = {
-      booking: { findUnique: jest.fn().mockResolvedValue(booking) },
+      booking: {
+        findUnique: jest.fn().mockResolvedValue(booking),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      payment: {
+        findUnique: jest.fn(),
+        create: jest.fn().mockResolvedValue({}),
+      },
       show: {
         findUnique: jest
           .fn()
@@ -42,46 +60,198 @@ describe('Booking confirmation and verification', () => {
               {
                 id: 'seat',
                 price: new Prisma.Decimal(100),
-                seat: { row: 'A', number: 1 },
+                status: ShowSeatStatus.LOCKED,
+                lockToken: 'customer',
+                lockedUntil: new Date(Date.now() + 60000),
+                seat: { row: 'A', number: 1, category: 'REGULAR' },
               },
             ]),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
-          booking: { create: jest.fn().mockResolvedValue(booking) },
+          booking: { create: jest.fn().mockImplementation(({ data }) => data) },
         }),
       ),
     };
     redis = {
-      getSeatLockHolders: jest.fn().mockResolvedValue(['customer']),
+      transferSeatLocks: jest.fn().mockResolvedValue(true),
       releaseSeatLocks: jest.fn(),
     };
     emails = {
       sendConfirmation: jest.fn().mockResolvedValue({ status: 'sent' }),
     };
     tickets = { verify: jest.fn().mockReturnValue('booking') };
-    service = new BookingService(prisma, redis, emails, tickets);
+    razorpay = {
+      createOrder: jest
+        .fn()
+        .mockResolvedValue({ id: 'order_1', amount: 10000, currency: 'INR' }),
+      checkoutKeyId: 'rzp_test_key',
+      getPayment: jest.fn().mockResolvedValue({
+        id: 'pay_1',
+        order_id: 'order_1',
+        amount: 10000,
+        currency: 'INR',
+        status: 'captured',
+      }),
+      verifyCheckoutSignature: jest.fn(),
+      listRefunds: jest.fn().mockResolvedValue({ items: [] }),
+      refund: jest.fn(),
+    };
+    service = new BookingService(prisma, redis, emails, tickets, razorpay);
   });
 
-  it('sends after transaction commit and preserves confirmation on email/lock failure', async () => {
-    emails.sendConfirmation.mockImplementation(async () => {
-      expect(prisma.$transaction).toHaveBeenCalled();
-      return { status: 'failed' };
-    });
-    redis.releaseSeatLocks.mockRejectedValue(new Error('Redis unavailable'));
-    const result = await service.confirm('customer', {
+  it('creates a pending booking and Razorpay order without issuing a ticket', async () => {
+    const result = await service.createCheckout('customer', {
       showId: 'show',
       showSeatIds: ['seat'],
     });
-    expect(result.status).toBe(BookingStatus.CONFIRMED);
-    expect(result.confirmationEmail.status).toBe('failed');
-    expect(emails.sendConfirmation).toHaveBeenCalledWith('booking');
+    expect(result).toMatchObject({
+      orderId: 'order_1',
+      amount: 10000,
+      keyId: 'rzp_test_key',
+    });
+    expect(prisma.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          provider: PaymentProvider.RAZORPAY,
+          status: PaymentStatus.INITIATED,
+        }),
+      }),
+    );
+    expect(emails.sendConfirmation).not.toHaveBeenCalled();
   });
 
-  it('does not email a rolled back booking', async () => {
+  it('does not create an order for a rolled back booking', async () => {
     prisma.$transaction.mockRejectedValue(new Error('Conflict'));
     await expect(
-      service.confirm('customer', { showId: 'show', showSeatIds: ['seat'] }),
+      service.createCheckout('customer', {
+        showId: 'show',
+        showSeatIds: ['seat'],
+      }),
     ).rejects.toThrow('Conflict');
+    expect(razorpay.createOrder).not.toHaveBeenCalled();
+    expect(emails.sendConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('confirms seats only after Razorpay reports a captured matching payment', async () => {
+    booking.status = BookingStatus.PENDING;
+    booking.expiresAt = new Date(Date.now() + 60000);
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'payment',
+      bookingId: booking.id,
+      booking,
+      provider: PaymentProvider.RAZORPAY,
+      providerOrderId: 'order_1',
+      amount: new Prisma.Decimal(100),
+      status: PaymentStatus.INITIATED,
+    });
+    const updateBooking = jest.fn().mockResolvedValue({ count: 1 });
+    const updateSeats = jest.fn().mockResolvedValue({ count: 1 });
+    const updatePayment = jest.fn();
+    prisma.$transaction.mockImplementation(async (callback) =>
+      callback({
+        booking: { updateMany: updateBooking },
+        showSeat: { updateMany: updateSeats },
+        payment: { update: updatePayment },
+      }),
+    );
+
+    await expect(
+      service.processCapturedPayment('order_1', 'pay_1'),
+    ).resolves.toMatchObject({ status: BookingStatus.CONFIRMED });
+    expect(updateSeats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          lockToken: booking.id,
+          status: ShowSeatStatus.LOCKED,
+        }),
+        data: expect.objectContaining({ status: ShowSeatStatus.BOOKED }),
+      }),
+    );
+    expect(updatePayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: PaymentStatus.SUCCESS,
+          providerPaymentId: 'pay_1',
+        }),
+      }),
+    );
+    expect(emails.sendConfirmation).toHaveBeenCalledWith(booking.id);
+  });
+
+  it('rejects a captured payment with the wrong amount', async () => {
+    booking.status = BookingStatus.PENDING;
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'payment',
+      bookingId: booking.id,
+      booking,
+      provider: PaymentProvider.RAZORPAY,
+      providerOrderId: 'order_1',
+      amount: new Prisma.Decimal(100),
+      status: PaymentStatus.INITIATED,
+    });
+    razorpay.getPayment.mockResolvedValue({
+      id: 'pay_1',
+      order_id: 'order_1',
+      amount: 5000,
+      currency: 'INR',
+      status: 'captured',
+    });
+    await expect(
+      service.processCapturedPayment('order_1', 'pay_1'),
+    ).rejects.toThrow('does not match');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(emails.sendConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('releases an expired hold and refunds a captured payment', async () => {
+    booking.status = BookingStatus.PENDING;
+    booking.expiresAt = new Date(Date.now() - 1000);
+    const payment = {
+      id: 'payment',
+      bookingId: booking.id,
+      booking,
+      provider: PaymentProvider.RAZORPAY,
+      providerOrderId: 'order_1',
+      amount: new Prisma.Decimal(100),
+      status: PaymentStatus.INITIATED,
+    };
+    prisma.payment.findUnique.mockResolvedValue(payment);
+    prisma.payment.findUniqueOrThrow = jest.fn().mockResolvedValue(payment);
+    prisma.payment.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    prisma.payment.update = jest.fn().mockResolvedValue({});
+    prisma.booking.update = jest.fn().mockResolvedValue({});
+    const releaseSeats = jest.fn().mockResolvedValue({ count: 1 });
+    prisma.$transaction
+      .mockImplementationOnce(async (callback) =>
+        callback({
+          booking: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        }),
+      )
+      .mockImplementationOnce(async (callback) =>
+        callback({
+          booking: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          showSeat: { updateMany: releaseSeats },
+          payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        }),
+      )
+      .mockImplementationOnce(async (operations) => Promise.all(operations));
+    razorpay.refund.mockResolvedValue({
+      id: 'rfnd_1',
+      payment_id: 'pay_1',
+      amount: 10000,
+      status: 'processed',
+    });
+
+    await expect(
+      service.processCapturedPayment('order_1', 'pay_1'),
+    ).resolves.toMatchObject({ status: BookingStatus.REFUNDED });
+    expect(releaseSeats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ lockToken: booking.id }),
+        data: expect.objectContaining({ status: ShowSeatStatus.AVAILABLE }),
+      }),
+    );
+    expect(razorpay.refund).toHaveBeenCalledWith('pay_1', 10000);
     expect(emails.sendConfirmation).not.toHaveBeenCalled();
   });
 

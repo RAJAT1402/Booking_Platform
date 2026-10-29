@@ -32,6 +32,18 @@ end
 return 1
 `;
 
+const TRANSFER_LOCKS = `
+for i = 1, #KEYS do
+  if redis.call('GET', KEYS[i]) ~= ARGV[1] then
+    return 0
+  end
+end
+for i = 1, #KEYS do
+  redis.call('SET', KEYS[i], ARGV[2], 'PX', ARGV[3])
+end
+return 1
+`;
+
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
@@ -86,6 +98,26 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (showSeatIds.length === 0) return;
     const keys = showSeatIds.map((id) => this.seatKey(showId, id));
     await this.client.eval(RELEASE_LOCKS, keys.length, ...keys, holderId);
+  }
+
+  async transferSeatLocks(
+    showId: string,
+    showSeatIds: string[],
+    currentHolder: string,
+    newHolder: string,
+    ttlMs: number,
+  ): Promise<boolean> {
+    if (showSeatIds.length === 0) return false;
+    const keys = showSeatIds.map((id) => this.seatKey(showId, id));
+    const result = await this.client.eval(
+      TRANSFER_LOCKS,
+      keys.length,
+      ...keys,
+      currentHolder,
+      newHolder,
+      String(ttlMs),
+    );
+    return result === 1;
   }
 
   /** Current holder for each seat (null where the lock is absent/expired). */

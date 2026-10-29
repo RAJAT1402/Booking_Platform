@@ -96,7 +96,8 @@ GET /movies                       → movieId
 GET /movies/:movieId/showtimes    → showId      (attached to each time slot)
 GET /shows/:showId/seats          → showSeatId[]
 POST /bookings/lock  { showId, showSeatIds }     (login required)
-POST /bookings       { showId, showSeatIds }     (login required)
+POST /bookings       { showId, showSeatIds }     → Razorpay order (login required)
+POST /bookings/:bookingId/verify-payment         → confirmed booking
 ```
 
 ### 1. Home / movie list → get a `movieId`
@@ -153,13 +154,15 @@ curl -X POST https://34-131-36-123.nip.io/bookings/lock \
   -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
   -d '{ "showId": "shw_778", "showSeatIds": ["ss_1", "ss_2"] }'
 
-# Collect payment, then confirm within the 2-minute window
+# Create a pending booking and Razorpay order within the 2-minute selection hold
 curl -X POST https://34-131-36-123.nip.io/bookings \
   -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
   -d '{ "showId": "shw_778", "showSeatIds": ["ss_1", "ss_2"] }'
 ```
 `409` on lock means someone grabbed a seat first → re-fetch the seat map (step 3).
-Confirm must land inside the 2-minute hold, or the seats free up and the user restarts.
+Open Razorpay Checkout with the returned `keyId`, `orderId`, `amount`, and `currency`.
+Send Razorpay's success callback to `POST /bookings/:bookingId/verify-payment`.
+The checkout hold expires after 10 minutes. See [Razorpay integration](./RAZORPAY_INTEGRATION.md).
 
 > **Auth timing:** steps 1–3 are fully public (browsing). The **login gate is at
 > step 4** — only when the user commits to locking seats do you need the Google
@@ -351,20 +354,22 @@ Seats are returned sorted by row then number. Expired locks are reported as
 
 ## 4. Booking flow — `/bookings` (all require bearer)
 
-The booking flow is **lock → confirm**, with a 2-minute hold.
+The booking flow is **lock → create order → pay → verify**, with a 2-minute
+selection hold and a 10-minute checkout hold.
 
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
 | POST   | `/bookings/lock`   | `{ showId, showSeatIds: string[] }` | Hold seats for ~2 min |
 | POST   | `/bookings/unlock` | `{ showId, showSeatIds: string[] }` | Release a hold early |
-| POST   | `/bookings`        | `{ showId, showSeatIds: string[] }` | Confirm held seats → booking |
+| POST   | `/bookings`        | `{ showId, showSeatIds: string[] }` | Create pending booking and Razorpay order |
+| POST   | `/bookings/:id/verify-payment` | Razorpay callback fields | Verify captured payment and confirm booking |
 | GET    | `/bookings`        | —                                   | Current user's bookings |
 | GET    | `/bookings/:id`    | —                                   | One booking (owner/admin can view others) |
-| POST   | `/bookings/:id/cancel` | —                               | Cancel a booking |
+| POST   | `/bookings/:id/cancel` | —                               | Cancel an unpaid pending booking |
 
 - `showSeatIds` = 1–10 unique `showSeatId` values from the seat map.
-- Typical UX: select seats → `POST /bookings/lock` → collect payment →
-  `POST /bookings` to confirm within the 2-minute window.
+- Typical UX: select seats → `POST /bookings/lock` → `POST /bookings` →
+  Razorpay Checkout → `POST /bookings/:id/verify-payment`.
 
 **Booking shape (with seats):**
 ```json

@@ -76,6 +76,10 @@ ACCESS_TOKEN_TTL=15m
 REFRESH_TOKEN_TTL_DAYS=30
 
 REDIS_URL=redis://localhost:6379
+
+RAZORPAY_KEY_ID=<key-id>
+RAZORPAY_KEY_SECRET=<key-secret>
+RAZORPAY_WEBHOOK_SECRET=<webhook-secret>
 ```
 
 ## 6. Install, migrate, build
